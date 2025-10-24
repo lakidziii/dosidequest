@@ -3,6 +3,12 @@ import { useUserStore } from '../../stores/userStore';
 import { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
+import { FollowButton } from '../../components/FollowButton';
+import { getNotificationsForUser, markNotificationRead } from '../../lib/notifications';
+import { fetchProfileById, getUserStats as fetchUserStats } from '../../lib/profiles';
+import { NotificationsList } from '../../components/NotificationsList';
+import { SearchModal } from '../../components/SearchModal';
+import { useFollow } from '../../hooks/useFollow';
 
 interface Notification {
   id: string;
@@ -28,12 +34,7 @@ export default function QuestsScreen() {
   const loadNotifications = async () => {
     if (!user?.id) return;
 
-    const { data, error } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('to_user_id', user.id)
-      .order('created_at', { ascending: false });
-
+    const { data, error } = await getNotificationsForUser(user.id);
     if (error) {
       console.error('Chyba při načítání notifikací:', error);
       return;
@@ -46,17 +47,12 @@ export default function QuestsScreen() {
 
   // Označení notifikace jako přečtené
   const markAsRead = async (notificationId: string) => {
-    const { error } = await supabase
-      .from('notifications')
-      .update({ read: true })
-      .eq('id', notificationId);
-
+    const { error } = await markNotificationRead(notificationId);
     if (error) {
       console.error('Chyba při označování notifikace jako přečtené:', error);
       return;
     }
 
-    // Aktualizuj lokální stav
     setNotifications(prev => 
       prev.map(n => n.id === notificationId ? { ...n, read: true } : n)
     );
@@ -66,13 +62,7 @@ export default function QuestsScreen() {
   // Otevření profilu uživatele z notifikace
   const openUserProfile = async (userId: string) => {
     try {
-      // Načti data uživatele z databáze
-      const { data: userData, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
+      const { data: userData, error } = await fetchProfileById(userId);
       if (error) {
         console.error('Error loading user data:', error);
         return;
@@ -94,31 +84,14 @@ export default function QuestsScreen() {
 
   const loadUserStats = async (userId: string) => {
     try {
-      // Get followers count
-      const { count: followersCount, error: followersError } = await supabase
-        .from('follows')
-        .select('*', { count: 'exact', head: true })
-        .eq('following_id', userId);
-
-      if (followersError) {
-        console.error('Error loading followers count:', followersError);
+      const { data, error } = await fetchUserStats(userId);
+      if (error || !data) {
+        console.error('Error loading user stats:', error);
         return;
       }
-
-      // Get following count
-      const { count: followingCount, error: followingError } = await supabase
-        .from('follows')
-        .select('*', { count: 'exact', head: true })
-        .eq('follower_id', userId);
-
-      if (followingError) {
-        console.error('Error loading following count:', followingError);
-        return;
-      }
-
       setUserStats({
-        followers: followersCount || 0,
-        following: followingCount || 0
+        followers: data.followers,
+        following: data.following
       });
     } catch (error) {
       console.error('Error loading user stats:', error);
@@ -196,32 +169,47 @@ export default function QuestsScreen() {
           return newSet;
         });
       } else {
-        // Follow
-        const { error } = await supabase
+        // Follow (idempotent)
+        const { data: existing, error: existingError } = await supabase
           .from('follows')
-          .insert({
-            follower_id: currentUser.id,
-            following_id: targetUserId
-          });
+          .select('id')
+          .eq('follower_id', currentUser.id)
+          .eq('following_id', targetUserId)
+          .maybeSingle();
 
-        if (error) {
-          console.error('Error following user:', error);
+        if (existingError) {
+          console.error('Error checking follow existence:', existingError);
           return;
         }
 
-        // Vytvoř notifikaci pro sledovaného uživatele
-        const { error: notificationError } = await supabase
-          .from('notifications')
-          .insert({
-            type: 'follow',
-            from_user_id: currentUser.id,
-            from_user_nickname: currentUser.user_metadata?.nickname || 'Neznámý uživatel',
-            to_user_id: targetUserId,
-            read: false
-          });
+        if (!existing) {
+          const { error } = await supabase
+            .from('follows')
+            .insert({
+              follower_id: currentUser.id,
+              following_id: targetUserId
+            });
 
-        if (notificationError) {
-          console.error('Error creating notification:', notificationError);
+          // Treat duplicate key as already followed, no crash
+          if (error && (error as any).code !== '23505') {
+            console.error('Error following user:', error);
+            return;
+          }
+
+          // Vytvoř notifikaci pouze při novém follow
+          const { error: notificationError } = await supabase
+            .from('notifications')
+            .insert({
+              type: 'follow',
+              from_user_id: currentUser.id,
+              from_user_nickname: currentUser.user_metadata?.nickname || 'Neznámý uživatel',
+              to_user_id: targetUserId,
+              read: false
+            });
+
+          if (notificationError) {
+            console.error('Error creating notification:', notificationError);
+          }
         }
 
         setFollowingUsers(prev => new Set(prev).add(targetUserId));
@@ -240,7 +228,8 @@ export default function QuestsScreen() {
         }
       }
 
-      // Update stats for the target user
+      // Resync following & friends state from DB and update stats
+      await loadFollowingStatus();
       await loadUserStats(targetUserId);
     } catch (error) {
       console.error('Error toggling follow:', error);
@@ -340,61 +329,10 @@ export default function QuestsScreen() {
           </View>
 
           {/* Notifications List */}
-          <FlatList
-            data={notifications}
-            keyExtractor={(item) => item.id}
-            style={styles.notificationsList}
-            renderItem={({ item }) => (
-              <TouchableOpacity 
-                style={[
-                  styles.notificationItem,
-                  !item.read && styles.unreadNotification
-                ]}
-                onPress={() => {
-                  markAsRead(item.id);
-                  openUserProfile(item.from_user_id);
-                }}
-              >
-                <View style={styles.notificationContent}>
-                  <Ionicons 
-                    name="person-add" 
-                    size={24} 
-                    color="#667eea" 
-                    style={styles.notificationIcon}
-                  />
-                  <View style={styles.notificationText}>
-                    <Text style={styles.notificationMessage}>
-                      <Text style={styles.notificationUsername}>
-                        {item.from_user_nickname}
-                      </Text>
-                      {' vás začal sledovat'}
-                    </Text>
-                    <Text style={styles.notificationTime}>
-                      {new Date(item.created_at).toLocaleDateString('cs-CZ', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </Text>
-                  </View>
-                  {!item.read && (
-                    <View style={styles.unreadDot} />
-                  )}
-                </View>
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={
-              <View style={styles.emptyNotifications}>
-                <Ionicons name="notifications-off-outline" size={60} color="#94a3b8" />
-                <Text style={styles.emptyNotificationsText}>
-                  Žádné notifikace
-                </Text>
-                <Text style={styles.emptyNotificationsSubtext}>
-                  Zde se zobrazí notifikace o nových sledujících
-                </Text>
-              </View>
-            }
+          <NotificationsList
+            notifications={notifications}
+            onOpenUser={openUserProfile}
+            onMarkRead={markAsRead}
           />
         </View>
       </Modal>
@@ -453,25 +391,11 @@ export default function QuestsScreen() {
               {/* Profile Actions */}
               {selectedUser.id !== user?.id && (
                 <View style={styles.profileActions}>
-                  <TouchableOpacity
-                    style={[
-                      styles.followButton,
-                      (followingUsers.has(selectedUser.id) || friendUsers.has(selectedUser.id)) && styles.followingButton
-                    ]}
+                  <FollowButton 
+                    isFollowing={followingUsers.has(selectedUser.id) || friendUsers.has(selectedUser.id)}
+                    isFriend={friendUsers.has(selectedUser.id)}
                     onPress={() => toggleFollow(selectedUser.id)}
-                  >
-                    <Text style={[
-                      styles.followButtonText,
-                      (followingUsers.has(selectedUser.id) || friendUsers.has(selectedUser.id)) && styles.followingButtonText
-                    ]}>
-                      {friendUsers.has(selectedUser.id) 
-                        ? 'Přátelé' 
-                        : followingUsers.has(selectedUser.id) 
-                          ? 'Sleduji' 
-                          : 'Sledovat'
-                      }
-                    </Text>
-                  </TouchableOpacity>
+                  />
                   <TouchableOpacity style={styles.messageButton}>
                     <Ionicons name="chatbubble-outline" size={20} color="#ffffff" />
                   </TouchableOpacity>

@@ -3,6 +3,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import * as SecureStore from 'expo-secure-store';
+import { theme } from '../../styles/theme';
+import { UserCard } from '../../components/UserCard';
+import { getUserStats as fetchUserStats, fetchProfileById } from '../../lib/profiles';
+import { useFollow } from '../../hooks/useFollow';
 
 interface Friend {
   id: string;
@@ -14,104 +18,40 @@ interface Friend {
 export default function FriendsScreen() {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState<string | null>(null);
+  const { currentUserId, followingUsers, friendUsers, toggleFollow } = useFollow();
 
   useEffect(() => {
-    console.log('FriendsScreen se načítá...');
-    loadUserId();
-  }, []);
-
-  useEffect(() => {
-    console.log('userId se změnil:', userId);
-    if (userId) {
-      console.log('Spouštím loadFriends...');
-      loadFriends();
+    if (currentUserId) {
+      loadFriends(currentUserId);
     }
-  }, [userId]);
+  }, [currentUserId, followingUsers, friendUsers]);
 
-  const loadUserId = async () => {
-    try {
-      console.log('Načítám userId ze Supabase...');
-      const { data: { user } } = await supabase.auth.getUser();
-      console.log('Načtený user:', user);
-      if (user) {
-        console.log('Nastavuji userId:', user.id);
-        setUserId(user.id);
-      } else {
-        console.log('Žádný přihlášený uživatel');
-        setUserId(null);
-      }
-    } catch (error) {
-      console.error('Error loading user ID:', error);
-    }
-  };
-
-  const loadFriends = async () => {
-    if (!userId) return;
-
+  const loadFriends = async (userId: string) => {
     try {
       setLoading(true);
-      console.log('Načítám přátele pro uživatele:', userId);
-      
-      // Najít všechny uživatele, které sledujeme
       const { data: following, error: followingError } = await supabase
         .from('follows')
         .select('following_id')
         .eq('follower_id', userId);
-
-      if (followingError) {
-        console.error('Chyba při načítání sledovaných:', followingError);
-        throw followingError;
-      }
-
-      console.log('Sledované uživatele:', following);
-
+      if (followingError) throw followingError;
       if (!following || following.length === 0) {
-        console.log('Žádní sledovaní uživatelé');
         setFriends([]);
         setLoading(false);
         return;
       }
-
       const followingIds = following.map(f => f.following_id);
-      console.log('IDs sledovaných:', followingIds);
-
-      // Najít uživatele, kteří nás také sledují (vzájemní přátelé)
       const { data: mutualFollows, error: mutualError } = await supabase
         .from('follows')
         .select('follower_id')
         .eq('following_id', userId)
         .in('follower_id', followingIds);
-
-      if (mutualError) {
-        console.error('Chyba při načítání vzájemných sledování:', mutualError);
-        throw mutualError;
-      }
-
-      console.log('Vzájemní sledování:', mutualFollows);
-
-      if (!mutualFollows || mutualFollows.length === 0) {
-        console.log('Žádní vzájemní přátelé');
-        setFriends([]);
-        setLoading(false);
-        return;
-      }
-
+      if (mutualError) throw mutualError;
       const friendIds = mutualFollows.map(f => f.follower_id);
-      console.log('IDs přátel:', friendIds);
-
-      // Načíst data přátel z tabulky profiles
       const { data: friendsData, error: friendsError } = await supabase
         .from('profiles')
         .select('id, nickname, bio, avatar_url')
         .in('id', friendIds);
-
-      if (friendsError) {
-        console.error('Chyba při načítání dat přátel:', friendsError);
-        throw friendsError;
-      }
-
-      console.log('Načteno přátel:', friendsData?.length || 0);
+      if (friendsError) throw friendsError;
       setFriends(friendsData || []);
     } catch (error) {
       console.error('Error loading friends:', error);
@@ -143,21 +83,16 @@ export default function FriendsScreen() {
           <>
             <Text style={styles.friendsCount}>Přátelé ({friends.length})</Text>
             {friends.map((friend) => (
-              <View key={friend.id} style={styles.friendItem}>
-                <View style={styles.friendInfo}>
-                  {friend.avatar_url ? (
-                    <Image source={{ uri: friend.avatar_url }} style={styles.friendAvatar} />
-                  ) : (
-                    <View style={styles.friendAvatarPlaceholder}>
-                      <Ionicons name="person" size={20} color="#64748b" />
-                    </View>
-                  )}
-                  <Text style={styles.friendUsername}>{friend.nickname}</Text>
-                </View>
-                <View style={styles.friendBadge}>
-                  <Text style={styles.friendBadgeText}>Přítel</Text>
-                </View>
-              </View>
+              <UserCard
+                key={friend.id}
+                id={friend.id}
+                nickname={friend.nickname}
+                bio={friend.bio}
+                avatar_url={friend.avatar_url}
+                isFriend={true}
+                isFollowing={true}
+                rightBadgeText="Přítel"
+              />
             ))}
           </>
         )}

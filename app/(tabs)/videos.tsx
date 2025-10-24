@@ -3,6 +3,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useUserStore } from '../../stores/userStore';
+import { FollowButton } from '../../components/FollowButton';
+import { searchProfiles, getUserStats as fetchUserStats } from '../../lib/profiles';
+import { SearchModal } from '../../components/SearchModal';
+import { useFollow } from '../../hooks/useFollow';
 
 export default function VideosScreen() {
   const { user, nickname: currentUserNickname, bio: currentUserBio, setBio } = useUserStore();
@@ -32,30 +36,22 @@ export default function VideosScreen() {
 
     setIsSearching(true);
     try {
-      // Vyhledávání profilů z databáze
-      const { data: profiles, error } = await supabase
-        .from('profiles')
-        .select('id, nickname, bio')
-        .ilike('nickname', `%${query}%`)
-        .limit(20);
-
+      const { data, error } = await searchProfiles(query);
       if (error) {
         console.error('Error searching profiles:', error);
         setSearchResults([]);
         return;
       }
 
-      // Převedení na formát očekávaný UI (přidání email pro kompatibilitu)
-      const searchResults = profiles?.map(profile => ({
+      const results = (data || []).map(profile => ({
         id: profile.id,
         nickname: profile.nickname,
-        email: `${profile.nickname}@user.com`, // Placeholder email pro UI kompatibilitu
-        bio: profile.bio || 'no bio yet'
-      })) || [];
-      
-      setSearchResults(searchResults);
-    } catch (error) {
-      console.error('Search error:', error);
+        email: `${profile.nickname}@user.com`,
+        bio: profile.bio || 'no bio yet',
+      }));
+      setSearchResults(results);
+    } catch (err) {
+      console.error('Error searching profiles:', err);
       setSearchResults([]);
     } finally {
       setIsSearching(false);
@@ -157,32 +153,47 @@ export default function VideosScreen() {
           return newSet;
         });
       } else {
-        // Follow
-        const { error } = await supabase
+        // Follow (idempotent)
+        const { data: existing, error: existingError } = await supabase
           .from('follows')
-          .insert({
-            follower_id: user.id,
-            following_id: targetUserId
-          });
+          .select('id')
+          .eq('follower_id', user.id)
+          .eq('following_id', targetUserId)
+          .maybeSingle();
 
-        if (error) {
-          console.error('Error following user:', error);
+        if (existingError) {
+          console.error('Error checking follow existence:', existingError);
           return;
         }
 
-        // Vytvoř notifikaci pro sledovaného uživatele
-        const { error: notificationError } = await supabase
-          .from('notifications')
-          .insert({
-            type: 'follow',
-            from_user_id: user.id,
-            from_user_nickname: user.user_metadata?.nickname || 'Neznámý uživatel',
-            to_user_id: targetUserId,
-            read: false
-          });
+        if (!existing) {
+          const { error } = await supabase
+            .from('follows')
+            .insert({
+              follower_id: user.id,
+              following_id: targetUserId
+            });
 
-        if (notificationError) {
-          console.error('Error creating notification:', notificationError);
+          // Treat duplicate key as already followed, no crash
+          if (error && (error as any).code !== '23505') {
+            console.error('Error following user:', error);
+            return;
+          }
+
+          // Vytvoř notifikaci pouze při novém follow
+          const { error: notificationError } = await supabase
+            .from('notifications')
+            .insert({
+              type: 'follow',
+              from_user_id: user.id,
+              from_user_nickname: user.user_metadata?.nickname || 'Neznámý uživatel',
+              to_user_id: targetUserId,
+              read: false
+            });
+
+          if (notificationError) {
+            console.error('Error creating notification:', notificationError);
+          }
         }
 
         setFollowingUsers(prev => new Set(prev).add(targetUserId));
@@ -201,7 +212,8 @@ export default function VideosScreen() {
         }
       }
 
-      // Update stats for the target user
+      // Resync following & friends state from DB and update stats
+      await loadFollowingStatus();
       await loadUserStats(targetUserId);
     } catch (error) {
       console.error('Error toggling follow:', error);
@@ -210,28 +222,16 @@ export default function VideosScreen() {
 
   const loadUserStats = async (userId: string) => {
     try {
-      // Get followers count
-      const { count: followersCount, error: followersError } = await supabase
-        .from('follows')
-        .select('*', { count: 'exact', head: true })
-        .eq('following_id', userId);
-
-      // Get following count
-      const { count: followingCount, error: followingError } = await supabase
-        .from('follows')
-        .select('*', { count: 'exact', head: true })
-        .eq('follower_id', userId);
-
-      if (followersError || followingError) {
-        console.error('Error loading user stats:', followersError || followingError);
+      const { data, error } = await fetchUserStats(userId);
+      if (error || !data) {
+        console.error('Error loading user stats:', error);
         return;
       }
-
       setUserStats(prev => ({
         ...prev,
         [userId]: {
-          followers: followersCount || 0,
-          following: followingCount || 0
+          followers: data.followers,
+          following: data.following,
         }
       }));
     } catch (error) {
@@ -317,65 +317,11 @@ export default function VideosScreen() {
       </View>
 
       {/* Search Modal */}
-      <Modal
+      <SearchModal
         visible={searchModalVisible}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={closeSearchModal}
-      >
-        <View style={styles.modalContainer}>
-          {/* Modal Header */}
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={closeSearchModal}>
-              <Ionicons name="close" size={24} color="#ffffff" />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Search Users</Text>
-            <View style={{ width: 24 }} />
-          </View>
-
-          {/* Search Input */}
-          <View style={styles.searchContainer}>
-            <Ionicons name="search" size={20} color="#888888" />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search by nickname..."
-              placeholderTextColor="#888888"
-              value={searchQuery}
-              onChangeText={handleSearch}
-              autoFocus
-            />
-          </View>
-
-          {/* Search Results */}
-          <FlatList
-            data={searchResults}
-            keyExtractor={(item) => item.id}
-            style={styles.resultsList}
-            renderItem={({ item }) => (
-              <TouchableOpacity style={styles.userItem} onPress={() => openProfileModal(item)}>
-                <Ionicons name="person-circle" size={40} color="#888888" />
-                <View style={styles.userInfo}>
-                  <Text style={styles.userName}>{item.nickname || 'Unknown User'}</Text>
-                  <Text style={styles.userHandle}>@{item.nickname?.replace(/\s+/g, '').toLowerCase() || 'user'}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="#888888" />
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={() => (
-              <View style={styles.emptyContainer}>
-                {isSearching ? (
-                  <Text style={styles.emptyText}>Searching...</Text>
-                ) : searchQuery ? (
-                  <Text style={styles.emptyText}>No users found</Text>
-                ) : (
-                  <Text style={styles.emptyText}>Start typing to search users</Text>
-                )}
-              </View>
-            )}
-          />
-        </View>
-      </Modal>
-
+        onClose={closeSearchModal}
+        onSelectUser={openProfileModal}
+      />
       {/* Profile Modal */}
       <Modal
         visible={profileModalVisible}
@@ -428,24 +374,14 @@ export default function VideosScreen() {
               {selectedUser.nickname !== currentUserNickname && (
                 <View style={styles.profileActions}>
                   <TouchableOpacity 
-                    style={[
-                      styles.followButton, 
-                      (followingUsers.has(selectedUser.id) || friendUsers.has(selectedUser.id)) && styles.followingButton
-                    ]}
-                    onPress={() => toggleFollow(selectedUser.id)}
-                  >
-                    <Text style={[
-                      styles.followButtonText,
-                      (followingUsers.has(selectedUser.id) || friendUsers.has(selectedUser.id)) && styles.followingButtonText
-                    ]}>
-                      {friendUsers.has(selectedUser.id) 
-                        ? 'Přátelé' 
-                        : followingUsers.has(selectedUser.id) 
-                          ? 'Sleduji' 
-                          : 'Sledovat'
-                      }
-                    </Text>
+                    style={styles.messageButton}>
+                    <Ionicons name="chatbubble-outline" size={20} color="#ffffff" />
                   </TouchableOpacity>
+                  <FollowButton 
+                    isFollowing={followingUsers.has(selectedUser.id) || friendUsers.has(selectedUser.id)}
+                    isFriend={friendUsers.has(selectedUser.id)}
+                    onPress={() => toggleFollow(selectedUser.id)}
+                  />
                   <TouchableOpacity style={styles.messageButton}>
                     <Ionicons name="chatbubble-outline" size={20} color="#ffffff" />
                   </TouchableOpacity>
