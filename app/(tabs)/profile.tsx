@@ -3,12 +3,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUserStore } from '../../stores/userStore';
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { AvatarPicker } from '../../components/AvatarPicker';
+import { useI18n } from '../../hooks/useI18n';
 
 export default function ProfileScreen() {
-  const { user, nickname, bio, setUser, setNickname, setBio } = useUserStore();
+  const { user, nickname, bio, avatar_url, setUser, setNickname, setBio, setAvatarUrl } = useUserStore();
+  const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<'Posts' | 'Liked'>('Posts');
   const [editBioModalVisible, setEditBioModalVisible] = useState(false);
+  const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
   const [tempBio, setTempBio] = useState('');
+  const [tempNickname, setTempNickname] = useState('');
   const [userStats, setUserStats] = useState({ followers: 0, following: 0 });
 
   // Odvozený handle ve stylu TikTok
@@ -27,15 +32,18 @@ export default function ProfileScreen() {
           setNickname(user.user_metadata.nickname);
         }
         
-        // Načtení bio z profiles tabulky
+        // Načtení bio a avatar_url z profiles tabulky
         const { data: profile } = await supabase
           .from('profiles')
-          .select('bio')
+          .select('bio, avatar_url')
           .eq('id', user.id)
           .single();
         
         if (profile?.bio) {
           setBio(profile.bio);
+        }
+        if (profile?.avatar_url) {
+          setAvatarUrl(profile.avatar_url);
         }
 
         // Načtení statistik uživatele
@@ -73,86 +81,116 @@ export default function ProfileScreen() {
     }
   };
 
-  const openEditBio = () => {
+  const openEditProfile = () => {
+    setTempNickname(nickname || '');
     setTempBio(bio || '');
-    setEditBioModalVisible(true);
+    setEditProfileModalVisible(true);
   };
 
-  const closeEditBio = () => {
-    setEditBioModalVisible(false);
+  const closeEditProfile = () => {
+    setEditProfileModalVisible(false);
+    setTempNickname('');
     setTempBio('');
   };
 
-  const saveBio = async () => {
+  const saveProfile = async () => {
+    const trimmedNickname = tempNickname.trim();
     const trimmedBio = tempBio.trim() || null;
+    
+    if (trimmedNickname) {
+      setNickname(trimmedNickname);
+    }
     setBio(trimmedBio);
     
     // Uložení do databáze
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { error } = await supabase
+        // Update nickname in user metadata
+        const { error: metadataError } = await supabase.auth.updateUser({
+          data: { nickname: trimmedNickname }
+        });
+        
+        // Update bio in profiles table
+        const { error: profileError } = await supabase
           .from('profiles')
           .update({ bio: trimmedBio })
           .eq('id', user.id);
         
-        if (error) {
-          console.error('Error updating bio:', error);
+        if (metadataError || profileError) {
+          console.error('Error updating profile:', metadataError || profileError);
         }
       }
     } catch (error) {
-      console.error('Error saving bio:', error);
+      console.error('Error saving profile:', error);
     }
     
-    setEditBioModalVisible(false);
+    setEditProfileModalVisible(false);
+    setTempNickname('');
     setTempBio('');
+  };
+
+  const removeAvatar = async () => {
+    try {
+      setAvatarUrl(null);
+      
+      // Update avatar in database
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ avatar_url: null })
+          .eq('id', user.id);
+        
+        if (error) {
+          console.error('Error removing avatar:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error removing avatar:', error);
+    }
   };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Ionicons name="person-circle" size={24} color="#1e293b" />
-        <Text style={styles.headerTitle}>Profile</Text>
-      </View>
-
       {/* Profile header (TikTok-like) */}
       <View style={styles.profileHeader}>
-        <Ionicons name="person-circle" size={80} color="#64748b" style={styles.avatarLarge} />
+        <AvatarPicker 
+          currentAvatarUrl={avatar_url}
+          onAvatarChange={setAvatarUrl}
+          size={80}
+          disabled={true}
+        />
         <Text style={styles.profileName}>{nickname || 'User'}</Text>
         <Text style={styles.handleText}>@{handle}</Text>
-        {/* Bio */}
-        <TouchableOpacity onPress={openEditBio}>
-          <Text style={[styles.bioText, !bio && styles.bioPlaceholder]}>
-            {bio || 'Add a bio to tell people about yourself'}
-          </Text>
-        </TouchableOpacity>
+        {/* Bio - not clickable */}
+        <Text style={[styles.bioText, !bio && styles.bioPlaceholder]}>
+          {bio || 'Add a bio to tell people about yourself'}
+        </Text>
 
-        {/* Stats row */}
+        {/* Stats row with more spacing */}
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{userStats.following}</Text>
-            <Text style={styles.statLabel}>Following</Text>
+            <Text style={styles.statLabel}>{t('profile.following')}</Text>
           </View>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{userStats.followers}</Text>
-            <Text style={styles.statLabel}>Followers</Text>
+            <Text style={styles.statLabel}>{t('profile.followers')}</Text>
           </View>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>0</Text>
-            <Text style={styles.statLabel}>Likes</Text>
+            <Text style={styles.statLabel}>{t('profile.likes')}</Text>
           </View>
         </View>
 
         {/* Actions */}
         <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.editButton}>
-            <Ionicons name="create-outline" size={18} color="#ffffff" />
-            <Text style={styles.editButtonText}>Edit profile</Text>
+          <TouchableOpacity style={styles.editProfileButton} onPress={openEditProfile}>
+            <Text style={styles.editProfileButtonText}>{t('profile.editProfile')}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.shareButton}>
-            <Ionicons name="share-outline" size={18} color="#1e293b" />
-            <Text style={styles.shareButtonText}>Share profile</Text>
+          <TouchableOpacity style={styles.analyticsButton}>
+            <Text style={styles.analyticsButtonText}>{t('profile.seeAnalytics')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -166,9 +204,9 @@ export default function ProfileScreen() {
           <Ionicons
             name={activeTab === 'Posts' ? 'grid' : 'grid-outline'}
             size={20}
-            color={activeTab === 'Posts' ? '#1e293b' : '#64748b'}
+            color={activeTab === 'Posts' ? '#1a1a1a' : '#6b7280'}
           />
-          <Text style={[styles.tabText, activeTab === 'Posts' && styles.activeTabText]}>Posts</Text>
+          <Text style={[styles.tabText, activeTab === 'Posts' && styles.activeTabText]}>{t('profile.posts')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -178,9 +216,9 @@ export default function ProfileScreen() {
           <Ionicons
             name={activeTab === 'Liked' ? 'heart' : 'heart-outline'}
             size={20}
-            color={activeTab === 'Liked' ? '#1e293b' : '#64748b'}
+            color={activeTab === 'Liked' ? '#1a1a1a' : '#6b7280'}
           />
-          <Text style={[styles.tabText, activeTab === 'Liked' && styles.activeTabText]}>Liked</Text>
+          <Text style={[styles.tabText, activeTab === 'Liked' && styles.activeTabText]}>{t('profile.liked')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -194,6 +232,72 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* Edit Profile Modal */}
+      <Modal
+        visible={editProfileModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <View style={styles.editProfileContainer}>
+          <View style={styles.editProfileHeader}>
+            <TouchableOpacity onPress={closeEditProfile}>
+              <Text style={styles.cancelButton}>{t('common.cancel')}</Text>
+            </TouchableOpacity>
+            <Text style={styles.editProfileTitle}>{t('profile.editProfile')}</Text>
+            <TouchableOpacity onPress={saveProfile}>
+              <Text style={styles.saveButton}>{t('common.save')}</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.editProfileContent}>
+            {/* Avatar Section */}
+            <View style={styles.avatarSection}>
+              <Text style={styles.sectionTitle}>{t('profile.profilePicture')}</Text>
+              <AvatarPicker 
+                currentAvatarUrl={avatar_url}
+                onAvatarChange={setAvatarUrl}
+                size={100}
+              />
+              {avatar_url && (
+                <TouchableOpacity style={styles.removeAvatarButton} onPress={removeAvatar}>
+                  <Ionicons name="trash-outline" size={16} color="#ef4444" />
+                  <Text style={styles.removeAvatarText}>{t('profile.removePicture')}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Nickname Section */}
+            <View style={styles.inputSection}>
+              <Text style={styles.sectionTitle}>{t('profile.nickname')}</Text>
+              <TextInput
+                style={styles.profileInput}
+                value={tempNickname}
+                onChangeText={setTempNickname}
+                placeholder={t('profile.enterNickname')}
+                placeholderTextColor="#888888"
+                maxLength={30}
+              />
+              <Text style={styles.characterCount}>{tempNickname.length}/30</Text>
+            </View>
+
+            {/* Bio Section */}
+            <View style={styles.inputSection}>
+              <Text style={styles.sectionTitle}>{t('profile.bio')}</Text>
+              <TextInput
+                style={styles.bioInput}
+                value={tempBio}
+                onChangeText={setTempBio}
+                placeholder={t('profile.tellPeopleAboutYourself')}
+                placeholderTextColor="#888888"
+                multiline
+                maxLength={150}
+              />
+              <Text style={styles.characterCount}>{tempBio.length}/150</Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -202,20 +306,9 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
     paddingTop: 60,
     paddingHorizontal: 20,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginLeft: 12,
   },
   profileHeader: {
     alignItems: 'center',
@@ -238,88 +331,110 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#64748b',
     marginTop: 8,
+    marginBottom: 24,
     textAlign: 'center',
   },
   statsRow: {
     flexDirection: 'row',
-    gap: 24,
-    marginTop: 14,
-    marginBottom: 8,
+    justifyContent: 'space-around',
+    marginBottom: 24,
+    paddingVertical: 24,
+    backgroundColor: '#f8f9ff',
+    borderRadius: 16,
+    marginHorizontal: -10,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(102, 126, 234, 0.12)',
   },
   statItem: {
     alignItems: 'center',
+    paddingHorizontal: 16,
   },
   statNumber: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#1e293b',
+    color: '#1a1a1a',
+    marginBottom: 4,
   },
   statLabel: {
-    fontSize: 12,
-    color: '#64748b',
+    fontSize: 13,
+    color: '#6b7280',
+    fontWeight: '500',
   },
   actionRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 12,
-  },
-  editButton: {
-    flex: 1,
-    backgroundColor: '#667eea',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    flexDirection: 'row',
     justifyContent: 'center',
-    gap: 8,
+    marginBottom: 20,
+    gap: 12,
   },
-  editButtonText: {
+  editProfileButton: {
+    backgroundColor: '#667eea',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 25,
+    alignItems: 'center',
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+    flex: 1,
+  },
+  editProfileButtonText: {
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
+    letterSpacing: 0.5,
   },
-  shareButton: {
-    flex: 1,
+  analyticsButton: {
     backgroundColor: '#f1f5f9',
+    paddingHorizontal: 18,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 25,
     alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    flex: 1,
   },
-  shareButtonText: {
-    color: '#1e293b',
+  analyticsButtonText: {
+    color: '#64748b',
     fontSize: 14,
     fontWeight: '600',
+    letterSpacing: 0.5,
   },
   tabsContainer: {
     flexDirection: 'row',
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 4,
-    marginTop: 16,
-    marginBottom: 12,
+    backgroundColor: '#f8f9ff',
+    borderRadius: 16,
+    padding: 6,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(102, 126, 234, 0.12)',
   },
   tabItem: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 8,
   },
   tabText: {
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: 15,
+    color: '#6b7280',
     fontWeight: '500',
   },
   activeTab: {
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#ffffff',
+    shadowColor: 'rgba(102, 126, 234, 0.2)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   activeTabText: {
-    color: '#1e293b',
+    color: '#1a1a1a',
     fontWeight: '600',
   },
   grid: {
@@ -380,20 +495,86 @@ const styles = StyleSheet.create({
   },
   bioInput: {
     fontSize: 16,
-    color: '#ffffff',
-    backgroundColor: '#1a1a1a',
-    borderRadius: 8,
-    padding: 15,
-    minHeight: 120,
+    color: '#1a1a1a',
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    padding: 16,
+    minHeight: 100,
     textAlignVertical: 'top',
     borderWidth: 1,
-    borderColor: '#333333',
+    borderColor: '#e2e8f0',
   },
   characterCount: {
     fontSize: 12,
     color: '#888888',
     textAlign: 'right',
     marginTop: 8,
+  },
+  editProfileContainer: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  editProfileHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+  },
+  editProfileTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1a1a1a',
+  },
+  editProfileContent: {
+    flex: 1,
+    padding: 20,
+  },
+  avatarSection: {
+    alignItems: 'center',
+    marginBottom: 32,
+    paddingVertical: 20,
+    backgroundColor: '#f8fafc',
+    borderRadius: 16,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 16,
+  },
+  inputSection: {
+    marginBottom: 24,
+  },
+  profileInput: {
+    fontSize: 16,
+    color: '#1a1a1a',
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  removeAvatarButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#fef2f2',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    gap: 8,
+  },
+  removeAvatarText: {
+    fontSize: 14,
+    color: '#ef4444',
+    fontWeight: '500',
   },
 
 });

@@ -68,6 +68,12 @@ function RootLayoutNav() {
           headerShown: false 
         }} 
       />
+      <Stack.Screen 
+        name="shop" 
+        options={{ 
+          headerShown: false 
+        }} 
+      />
     </Stack>
   );
 }

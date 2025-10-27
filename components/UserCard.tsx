@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../styles/theme';
 import { FollowButton } from './FollowButton';
@@ -13,9 +13,11 @@ interface UserCardProps {
   isFollowing?: boolean;
   onFollowToggle?: () => void;
   rightBadgeText?: string;
+  onMessagePress?: () => void;
+  onInvitePress?: () => void;
 }
 
-export function UserCard({ id, nickname, bio, avatar_url, isFriend, isFollowing, onFollowToggle, rightBadgeText }: UserCardProps) {
+export function UserCard({ id, nickname, bio, avatar_url, isFriend, isFollowing, onFollowToggle, rightBadgeText, onMessagePress, onInvitePress }: UserCardProps) {
   return (
     <View style={styles.card}>
       <View style={styles.info}>
@@ -23,7 +25,7 @@ export function UserCard({ id, nickname, bio, avatar_url, isFriend, isFollowing,
           <Image source={{ uri: avatar_url }} style={styles.avatar} />
         ) : (
           <View style={styles.avatarPlaceholder}>
-            <Ionicons name="person" size={20} color={theme.colors.textSecondary} />
+            <Ionicons name="person" size={24} color="rgba(102, 126, 234, 0.6)" />
           </View>
         )}
         <View style={styles.texts}>
@@ -32,8 +34,19 @@ export function UserCard({ id, nickname, bio, avatar_url, isFriend, isFollowing,
         </View>
       </View>
       {rightBadgeText ? (
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{rightBadgeText}</Text>
+        <View style={styles.iconButtons}>
+          <TouchableOpacity 
+            style={styles.iconButton}
+            onPress={onMessagePress}
+          >
+            <Ionicons name="chatbubble" size={20} color="#667eea" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.iconButton}
+            onPress={onInvitePress}
+          >
+            <Ionicons name="person-add" size={20} color="#667eea" />
+          </TouchableOpacity>
         </View>
       ) : (
         onFollowToggle ? (
@@ -51,9 +64,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    backgroundColor: 'transparent',
   },
   info: {
     flexDirection: 'row',
@@ -61,41 +74,72 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 12,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    marginRight: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(102, 126, 234, 0.3)',
   },
   avatarPlaceholder: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(102, 126, 234, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(102, 126, 234, 0.3)',
+  },
+  texts: {
+    gap: 6,
+    flex: 1,
+  },
+  username: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    letterSpacing: 0.3,
+  },
+  bio: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+    opacity: 1,
+  },
+  badge: {
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  badgeText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  iconButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  iconButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
-  },
-  texts: {
-    gap: 2,
-  },
-  username: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1e293b',
-  },
-  bio: {
-    fontSize: 12,
-    color: '#64748b',
-  },
-  badge: {
-    backgroundColor: '#10b981',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  badgeText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '600',
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
 });

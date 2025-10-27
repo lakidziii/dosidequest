@@ -29,18 +29,6 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
-        name="index"
-        options={{
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons 
-              name={focused ? "home" : "home-outline"} 
-              size={28} 
-              color={color} 
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="quests"
         options={{
           tabBarIcon: ({ color, focused }) => (

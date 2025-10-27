@@ -6,6 +6,7 @@ import { getUserStats as fetchUserStats } from '../lib/profiles';
 export function useFollow() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [followingUsers, setFollowingUsers] = useState<Set<string>>(new Set());
+  const [followerUsers, setFollowerUsers] = useState<Set<string>>(new Set());
   const [friendUsers, setFriendUsers] = useState<Set<string>>(new Set());
   const [userStats, setUserStats] = useState<Record<string, { followers: number; following: number }>>({});
 
@@ -25,6 +26,7 @@ export function useFollow() {
     if (!uid) return;
 
     try {
+      // Load who I'm following
       const { data: followingData, error: followingError } = await supabase
         .from('follows')
         .select('following_id')
@@ -35,6 +37,18 @@ export function useFollow() {
       const followingSet = new Set(followingData?.map(f => f.following_id) || []);
       setFollowingUsers(followingSet);
 
+      // Load who is following me
+      const { data: followersData, error: followersError } = await supabase
+        .from('follows')
+        .select('follower_id')
+        .eq('following_id', uid);
+
+      if (followersError) return;
+
+      const followersSet = new Set(followersData?.map(f => f.follower_id) || []);
+      setFollowerUsers(followersSet);
+
+      // Find mutual follows (friends)
       const { data: mutualFollowsData, error: mutualError } = await supabase
         .from('follows')
         .select('follower_id')
@@ -91,6 +105,7 @@ export function useFollow() {
   return {
     currentUserId,
     followingUsers,
+    followerUsers,
     friendUsers,
     userStats,
     loadFollowingStatus,

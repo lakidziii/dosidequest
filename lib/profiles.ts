@@ -4,7 +4,7 @@ export async function searchProfiles(query: string) {
   if (!query.trim()) return { data: [], error: null };
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, nickname, bio')
+    .select('id, nickname, bio, avatar_url')
     .ilike('nickname', `%${query}%`)
     .limit(20);
 

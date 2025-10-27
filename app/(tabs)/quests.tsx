@@ -9,6 +9,8 @@ import { fetchProfileById, getUserStats as fetchUserStats } from '../../lib/prof
 import { NotificationsList } from '../../components/NotificationsList';
 import { SearchModal } from '../../components/SearchModal';
 import { useFollow } from '../../hooks/useFollow';
+import { useI18n } from '../../hooks/useI18n';
+import { useGreeting } from '../../hooks/useGreeting';
 
 interface Notification {
   id: string;
@@ -20,7 +22,9 @@ interface Notification {
 }
 
 export default function QuestsScreen() {
-  const { nickname, setUser, setNickname, user } = useUserStore();
+  const { user, nickname, setUser, setNickname } = useUserStore();
+  const { t } = useI18n();
+  const { greeting } = useGreeting();
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -265,9 +269,9 @@ export default function QuestsScreen() {
         <View style={styles.headerContent}>
           <View style={styles.greetingContainer}>
             <Ionicons name="hand-right-outline" size={24} color="#1e293b" />
-            <Text style={styles.greeting}>Hello, {nickname || 'User'}</Text>
+            <Text style={styles.greeting}>{greeting}</Text>
           </View>
-          <Text style={styles.welcomeText}>Welcome to doSidequest.</Text>
+          <Text style={styles.welcomeText}>{t('home.welcome')}</Text>
         </View>
         <TouchableOpacity 
           style={styles.notificationButton} 
@@ -289,15 +293,15 @@ export default function QuestsScreen() {
         <View style={styles.clockIcon}>
           <Ionicons name="time-outline" size={60} color="#94a3b8" />
         </View>
-        <Text style={styles.noQuestTitle}>Currently no quest</Text>
+        <Text style={styles.noQuestTitle}>{t('quests.noQuestsTitle')}</Text>
         <Text style={styles.noQuestSubtitle}>
-          We'll notify you when{'\n'}it will be ready for you.
+          {t('quests.noQuestsSubtitle')}
         </Text>
       </View>
 
       {/* Analytics Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Analytics</Text>
+        <Text style={styles.sectionTitle}>{t('home.analytics')}</Text>
         <View style={styles.analyticsPlaceholder}>
           {/* Empty analytics area */}
         </View>
@@ -305,7 +309,7 @@ export default function QuestsScreen() {
 
       {/* Graphs Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Graphs</Text>
+        <Text style={styles.sectionTitle}>{t('home.progressGraphs')}</Text>
         <View style={styles.graphsPlaceholder}>
           {/* Empty graphs area */}
         </View>
@@ -324,16 +328,24 @@ export default function QuestsScreen() {
             <TouchableOpacity onPress={() => setNotificationModalVisible(false)}>
               <Ionicons name="close" size={24} color="#ffffff" />
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>Notifikace</Text>
+            <Text style={styles.modalTitle}>{t('home.notifications')}</Text>
             <View style={{ width: 24 }} />
           </View>
 
           {/* Notifications List */}
-          <NotificationsList
-            notifications={notifications}
-            onOpenUser={openUserProfile}
-            onMarkRead={markAsRead}
-          />
+          {notifications.length === 0 ? (
+            <View style={styles.emptyNotifications}>
+              <Ionicons name="notifications-off-outline" size={64} color="#64748b" />
+              <Text style={styles.emptyNotificationsText}>{t('home.noNotifications')}</Text>
+              <Text style={styles.emptyNotificationsSubtext}>{t('home.noNotificationsDesc')}</Text>
+            </View>
+          ) : (
+            <NotificationsList
+              notifications={notifications}
+              onOpenUser={openUserProfile}
+              onMarkRead={markAsRead}
+            />
+          )}
         </View>
       </Modal>
 

@@ -7,9 +7,20 @@ import { FollowButton } from '../../components/FollowButton';
 import { searchProfiles, getUserStats as fetchUserStats } from '../../lib/profiles';
 import { SearchModal } from '../../components/SearchModal';
 import { useFollow } from '../../hooks/useFollow';
+import { useI18n } from '../../hooks/useI18n';
 
 export default function VideosScreen() {
   const { user, nickname: currentUserNickname, bio: currentUserBio, setBio } = useUserStore();
+  const { t } = useI18n();
+  const {
+    followingUsers,
+    friendUsers,
+    followerUsers,
+    userStats,
+    loadFollowingStatus,
+    loadUserStats,
+    toggleFollow,
+  } = useFollow();
   const [activeTab, setActiveTab] = useState('For You');
   const [searchModalVisible, setSearchModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -19,9 +30,6 @@ export default function VideosScreen() {
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [editBioModalVisible, setEditBioModalVisible] = useState(false);
   const [tempBio, setTempBio] = useState('');
-  const [followingUsers, setFollowingUsers] = useState<Set<string>>(new Set());
-  const [friendUsers, setFriendUsers] = useState<Set<string>>(new Set());
-  const [userStats, setUserStats] = useState<{[key: string]: {followers: number, following: number}}>({});
 
   // Načtení following statusu při načtení komponenty
   useEffect(() => {
@@ -120,163 +128,6 @@ export default function VideosScreen() {
     setTempBio('');
   };
 
-  const toggleFollow = async (targetUserId: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const isCurrentlyFollowing = followingUsers.has(targetUserId);
-    
-    try {
-      if (isCurrentlyFollowing) {
-        // Unfollow
-        const { error } = await supabase
-          .from('follows')
-          .delete()
-          .eq('follower_id', user.id)
-          .eq('following_id', targetUserId);
-
-        if (error) {
-          console.error('Error unfollowing user:', error);
-          return;
-        }
-
-        setFollowingUsers(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(targetUserId);
-          return newSet;
-        });
-
-        // Remove from friends if they were friends
-        setFriendUsers(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(targetUserId);
-          return newSet;
-        });
-      } else {
-        // Follow (idempotent)
-        const { data: existing, error: existingError } = await supabase
-          .from('follows')
-          .select('id')
-          .eq('follower_id', user.id)
-          .eq('following_id', targetUserId)
-          .maybeSingle();
-
-        if (existingError) {
-          console.error('Error checking follow existence:', existingError);
-          return;
-        }
-
-        if (!existing) {
-          const { error } = await supabase
-            .from('follows')
-            .insert({
-              follower_id: user.id,
-              following_id: targetUserId
-            });
-
-          // Treat duplicate key as already followed, no crash
-          if (error && (error as any).code !== '23505') {
-            console.error('Error following user:', error);
-            return;
-          }
-
-          // Vytvoř notifikaci pouze při novém follow
-          const { error: notificationError } = await supabase
-            .from('notifications')
-            .insert({
-              type: 'follow',
-              from_user_id: user.id,
-              from_user_nickname: user.user_metadata?.nickname || 'Neznámý uživatel',
-              to_user_id: targetUserId,
-              read: false
-            });
-
-          if (notificationError) {
-            console.error('Error creating notification:', notificationError);
-          }
-        }
-
-        setFollowingUsers(prev => new Set(prev).add(targetUserId));
-
-        // Check if this creates a mutual follow (friendship)
-        const { data: mutualFollowData, error: mutualError } = await supabase
-          .from('follows')
-          .select('*')
-          .eq('follower_id', targetUserId)
-          .eq('following_id', user.id)
-          .single();
-
-        if (!mutualError && mutualFollowData) {
-          // They follow each other - they are now friends
-          setFriendUsers(prev => new Set(prev).add(targetUserId));
-        }
-      }
-
-      // Resync following & friends state from DB and update stats
-      await loadFollowingStatus();
-      await loadUserStats(targetUserId);
-    } catch (error) {
-      console.error('Error toggling follow:', error);
-    }
-  };
-
-  const loadUserStats = async (userId: string) => {
-    try {
-      const { data, error } = await fetchUserStats(userId);
-      if (error || !data) {
-        console.error('Error loading user stats:', error);
-        return;
-      }
-      setUserStats(prev => ({
-        ...prev,
-        [userId]: {
-          followers: data.followers,
-          following: data.following,
-        }
-      }));
-    } catch (error) {
-      console.error('Error loading user stats:', error);
-    }
-  };
-
-  const loadFollowingStatus = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    try {
-      // Get users that current user is following
-      const { data: followingData, error: followingError } = await supabase
-        .from('follows')
-        .select('following_id')
-        .eq('follower_id', user.id);
-
-      if (followingError) {
-        console.error('Error loading following status:', followingError);
-        return;
-      }
-
-      const followingSet = new Set(followingData?.map(f => f.following_id) || []);
-      setFollowingUsers(followingSet);
-
-      // Check for mutual follows (friends)
-      const { data: mutualFollowsData, error: mutualError } = await supabase
-        .from('follows')
-        .select('follower_id')
-        .in('follower_id', Array.from(followingSet))
-        .eq('following_id', user.id);
-
-      if (mutualError) {
-        console.error('Error loading mutual follows:', mutualError);
-        return;
-      }
-
-      const friendsSet = new Set(mutualFollowsData?.map(f => f.follower_id) || []);
-      setFriendUsers(friendsSet);
-    } catch (error) {
-      console.error('Error loading following status:', error);
-    }
-  };
-
   useEffect(() => {
     loadFollowingStatus();
   }, []);
@@ -291,7 +142,7 @@ export default function VideosScreen() {
             onPress={() => setActiveTab('For You')}
           >
             <Text style={[styles.tabText, activeTab === 'For You' && styles.activeTabText]}>
-              For You
+              {t('videos.forYou')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity 
@@ -299,7 +150,7 @@ export default function VideosScreen() {
             onPress={() => setActiveTab('Friends')}
           >
             <Text style={[styles.tabText, activeTab === 'Friends' && styles.activeTabText]}>
-              Friends
+              {t('videos.friends')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -333,7 +184,7 @@ export default function VideosScreen() {
           {/* Profile Header */}
           <View style={styles.profileHeader}>
             <TouchableOpacity onPress={closeProfileModal} style={styles.backButton}>
-              <Ionicons name="arrow-back" size={24} color="#ffffff" />
+              <Ionicons name="arrow-back" size={24} color="#1a1a1a" />
             </TouchableOpacity>
             <Text style={styles.profileHeaderTitle}>Profile</Text>
             <View style={{ width: 24 }} />
@@ -344,10 +195,12 @@ export default function VideosScreen() {
             <ScrollView contentContainerStyle={styles.profileContent}>
               {/* Avatar and Basic Info */}
               <View style={styles.profileInfoSection}>
-                <Ionicons name="person-circle" size={100} color="#888888" style={styles.profileAvatar} />
+                <Ionicons name="person-circle" size={100} color="#6b7280" style={styles.profileAvatar} />
                 <Text style={styles.profileName}>{selectedUser.nickname}</Text>
                 <Text style={styles.profileHandle}>@{selectedUser.nickname?.replace(/\s+/g, '').toLowerCase()}</Text>
-                <Text style={styles.profileEmail}>{selectedUser.email}</Text>
+                {selectedUser.bio && (
+                  <Text style={styles.profileBio}>{selectedUser.bio}</Text>
+                )}
               </View>
 
               {/* Stats Section */}
@@ -373,18 +226,12 @@ export default function VideosScreen() {
               {/* Action Buttons - Only show for other users */}
               {selectedUser.nickname !== currentUserNickname && (
                 <View style={styles.profileActions}>
-                  <TouchableOpacity 
-                    style={styles.messageButton}>
-                    <Ionicons name="chatbubble-outline" size={20} color="#ffffff" />
-                  </TouchableOpacity>
                   <FollowButton 
                     isFollowing={followingUsers.has(selectedUser.id) || friendUsers.has(selectedUser.id)}
                     isFriend={friendUsers.has(selectedUser.id)}
+                    isFollowingMe={followerUsers.has(selectedUser.id)}
                     onPress={() => toggleFollow(selectedUser.id)}
                   />
-                  <TouchableOpacity style={styles.messageButton}>
-                    <Ionicons name="chatbubble-outline" size={20} color="#ffffff" />
-                  </TouchableOpacity>
                 </View>
               )}
 
@@ -595,7 +442,7 @@ const styles = StyleSheet.create({
   },
   profileModalContainer: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#ffffff',
   },
   profileHeader: {
     flexDirection: 'row',
@@ -605,13 +452,13 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: 'rgba(102, 126, 234, 0.12)',
   },
   backButton: {
     padding: 4,
   },
   profileHeaderTitle: {
-    color: '#ffffff',
+    color: '#1a1a1a',
     fontSize: 18,
     fontWeight: '600',
   },
@@ -627,15 +474,22 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   profileName: {
-    color: '#ffffff',
+    color: '#1a1a1a',
     fontSize: 24,
     fontWeight: '700',
     marginBottom: 4,
   },
   profileHandle: {
-    color: '#888888',
+    color: '#6b7280',
     fontSize: 16,
     marginBottom: 8,
+  },
+  profileBio: {
+    color: '#4b5563',
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginTop: 8,
   },
   profileEmail: {
     color: '#666666',
@@ -646,22 +500,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     marginBottom: 30,
     paddingVertical: 20,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#f8f9ff',
+    borderRadius: 16,
+    marginHorizontal: -10,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(102, 126, 234, 0.12)',
   },
   statItem: {
     alignItems: 'center',
   },
   statNumber: {
-    color: '#ffffff',
+    color: '#1a1a1a',
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 4,
   },
   statLabel: {
-    color: '#888888',
-    fontSize: 14,
+    color: '#6b7280',
+    fontSize: 13,
+    fontWeight: '500',
   },
   profileActions: {
     flexDirection: 'row',
@@ -675,21 +533,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
     paddingVertical: 12,
     borderRadius: 25,
-    flex: 1,
     alignItems: 'center',
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   followButtonText: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
+    letterSpacing: 0.5,
   },
   followingButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#f8f9ff',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: 'rgba(102, 126, 234, 0.3)',
   },
   followingButtonText: {
-    color: '#ffffff',
+    color: '#667eea',
   },
   messageButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -726,17 +589,16 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   editProfileButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#f8f9ff',
     paddingHorizontal: 40,
     paddingVertical: 12,
     borderRadius: 25,
-    flex: 1,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(102, 126, 234, 0.3)',
   },
   editProfileButtonText: {
-    color: '#ffffff',
+    color: '#667eea',
     fontSize: 16,
     fontWeight: '600',
   },
