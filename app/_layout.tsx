@@ -69,7 +69,7 @@ function RootLayoutNav() {
         }} 
       />
       <Stack.Screen 
-        name="shop" 
+        name="shop_new" 
         options={{ 
           headerShown: false 
         }} 

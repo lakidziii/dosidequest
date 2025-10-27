@@ -50,8 +50,8 @@ export default function LeaderboardScreen() {
   }, [activeTab, user?.id]);
 
   // Funkce pro změnu tabu
-  const handleTabChange = (tab: 'Global' | 'Friends') => {
-    setActiveTab(tab);
+  const handleTabChange = (tab: 'global' | 'friends') => {
+    setActiveTab(tab.toLowerCase() as 'global' | 'friends');
   };
 
   // Testovací funkce pro přidání bodů
@@ -90,14 +90,14 @@ export default function LeaderboardScreen() {
       {/* Tab Navigation */}
       <View style={styles.tabContainer}>
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'Global' && styles.activeTab]}
-          onPress={() => handleTabChange('Global')}
+          style={[styles.tab, activeTab === 'global' && styles.activeTab]}
+          onPress={() => setActiveTab('global')}
         >
-          <Text style={[styles.tabText, activeTab === 'Global' && styles.activeTabText]}>{t('leaderboard.global')}</Text>
+          <Text style={[styles.tabText, activeTab === 'global' && styles.activeTabText]}>{t('leaderboard.global')}</Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'Friends' && styles.activeTab]}
-          onPress={() => handleTabChange('Friends')}
+          style={[styles.tab, activeTab === 'friends' && styles.activeTab]}
+          onPress={() => setActiveTab('friends')}
         >
           <Text style={[styles.tabText, activeTab === 'Friends' && styles.activeTabText]}>{t('leaderboard.friends')}</Text>
         </TouchableOpacity>
@@ -127,10 +127,10 @@ export default function LeaderboardScreen() {
         <View style={styles.emptyContainer}>
           <MaterialIcons name="leaderboard" size={48} color="#94a3b8" />
           <Text style={styles.emptyText}>
-            {activeTab === 'Friends' ? t('leaderboard.noFriendsData') : t('leaderboard.noGlobalData')}
+            {activeTab === 'friends' ? t('leaderboard.noFriendsData') : t('leaderboard.noGlobalData')}
           </Text>
           <Text style={styles.emptySubtext}>
-            {activeTab === 'Friends' 
+            {activeTab === 'friends' 
               ? t('leaderboard.addFriendsHint') 
               : t('leaderboard.beFirstHint')}
           </Text>

@@ -370,6 +370,8 @@ const translations: Record<Language, Translations> = {
       testPoints: '+100 pt',
       pointsAdded: 'Points added successfully!',
       errorAddingPoints: 'Failed to add points',
+      beFirstHint: 'Be the first to earn points and appear on the leaderboard!',
+      addFriendsHint: 'Add friends to see their scores',
     },
     friends: {
       title: 'Friends',
@@ -590,6 +592,8 @@ const translations: Record<Language, Translations> = {
       errorAddingPoints: 'Nepodařilo se přidat body',
       earnPointsSubtitle: 'získávejte body plněním vedlejších úkolů',
       you: 'Ty',
+      beFirstHint: 'Buďte první, kdo získá body a objeví se v žebříčku!',
+      addFriendsHint: 'Přidejte si přátele, abyste viděli jejich skóre',
     },
     friends: {
       title: 'Přátelé',
@@ -810,6 +814,8 @@ const translations: Record<Language, Translations> = {
       errorAddingPoints: 'Nepodarilo sa pridať body',
       earnPointsSubtitle: 'získavajte body plnením vedľajších úloh',
       you: 'Ty',
+      beFirstHint: 'Buďte prvý, kto získa body a objaví sa v rebríčku!',
+      addFriendsHint: 'Pridajte si priateľov, aby ste videli ich skóre',
     },
     friends: {
       title: 'Priatelia',
@@ -1030,6 +1036,8 @@ const translations: Record<Language, Translations> = {
       errorAddingPoints: 'Fehler beim Hinzufügen der Punkte',
       earnPointsSubtitle: 'sammle Punkte durch das Abschließen von Nebenquests',
       you: 'Du',
+      beFirstHint: 'Sei der Erste, der Punkte sammelt und in der Bestenliste erscheint!',
+      addFriendsHint: 'Füge Freunde hinzu, um ihre Punktzahlen zu sehen',
     },
     friends: {
       title: 'Freunde',
